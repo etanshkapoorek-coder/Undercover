@@ -1,6 +1,6 @@
 # UNDERCOVER — online imposter word game
 
-A real-time, up-to-6-player party game with a twist: most players get the
+A real-time, up-to-9-player party game with a twist: most players get the
 same secret word, but one or more "imposters" get a *closely related*
 decoy word instead (Messi / Neymar, Lion / Tiger, Iron Man / Batman…).
 Nobody is told who has the decoy — so the imposter often isn't sure
@@ -15,7 +15,8 @@ polling lag and no race conditions between players' devices — it's the
 
 ```
 undercover-server/
-  server.js          ← the entire backend (rooms, game logic, sockets)
+  server.js          ← the backend (rooms, game logic, sockets)
+  categories.js      ← ALL the word pairs (edit this to add more!)
   package.json
   public/
     index.html        ← page shell
@@ -23,12 +24,20 @@ undercover-server/
     client.js           ← frontend logic (talks to the server over websockets)
 ```
 
-Ten categories ship by default: Football (Soccer) Legends, Bollywood
-Actors, Indian Politicians, Hollywood Actors, Influential Figures, Music
-Icons, Superheroes, World Foods, Wild Animals, Historical Figures. Add
-more any time by editing the `CATEGORIES` object at the top of
-`server.js` (and mirroring the id/name in `CATEGORY_LIST` at the top of
-`public/client.js` — the word pairs themselves stay server-side only).
+Ten categories ship by default, each with 60–100+ word pairs: Football
+(Soccer) Legends, Bollywood Actors, Indian Politicians, Hollywood
+Actors, Influential Figures, Music Icons, Superheroes, World Foods, Wild
+Animals, Historical Figures.
+
+**Adding more pairs is easy:** open `categories.js`, find the category,
+and add a new line like `Luka Modrić / Toni Kroos`. That's it — duplicates
+(even reversed ones) are removed automatically. To add a brand-new
+category, add a block in `categories.js` plus its `[id, name]` in
+`CATEGORY_LIST` at the top of `public/client.js`.
+
+**Game limits:** 3–9 players, 1–3 imposters (always leaving at least 2
+regular players), 1–4 clue rounds. The host can also skip straight to
+voting, or skip ahead to the next clue round, during the clue phase.
 
 ## Run it locally
 

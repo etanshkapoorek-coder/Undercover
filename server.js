@@ -23,112 +23,17 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 const PORT = process.env.PORT || 3000;
 
 /* ============================================================
-   Category / word-pair data
+   Category / word-pair data (lives in categories.js)
    ============================================================ */
-const CATEGORIES = {
-  football: { name: 'Football (Soccer) Legends', pairs: [
-    ['Lionel Messi', 'Neymar Jr.'],
-    ['Cristiano Ronaldo', 'Robert Lewandowski'],
-    ['Kylian Mbappé', 'Erling Haaland'],
-    ['Xavi Hernández', 'Andrés Iniesta'],
-    ['Ronaldinho', 'Robinho'],
-    ['Pelé', 'Garrincha'],
-    ['Diego Maradona', 'Lionel Messi'],
-    ['Thierry Henry', 'Dennis Bergkamp'],
-    ['Zinedine Zidane', 'Andrea Pirlo'],
-    ['David Beckham', 'Steven Gerrard'],
-    ['Sergio Ramos', 'Gerard Piqué'],
-  ]},
-  bollywood: { name: 'Bollywood Actors', pairs: [
-    ['Shah Rukh Khan', 'Aamir Khan'],
-    ['Salman Khan', 'Akshay Kumar'],
-    ['Ranbir Kapoor', 'Ranveer Singh'],
-    ['Amitabh Bachchan', 'Dharmendra'],
-    ['Priyanka Chopra', 'Deepika Padukone'],
-    ['Kareena Kapoor', 'Katrina Kaif'],
-    ['Hrithik Roshan', 'Tiger Shroff'],
-    ['Alia Bhatt', 'Kiara Advani'],
-    ['Vicky Kaushal', 'Ayushmann Khurrana'],
-  ]},
-  indian_politics: { name: 'Indian Politicians', pairs: [
-    ['Jawaharlal Nehru', 'Lal Bahadur Shastri'],
-    ['Indira Gandhi', 'Sonia Gandhi'],
-    ['Atal Bihari Vajpayee', 'L. K. Advani'],
-    ['Narendra Modi', 'Amit Shah'],
-    ['Rahul Gandhi', 'Priyanka Gandhi Vadra'],
-    ['Mamata Banerjee', 'Jayalalithaa'],
-    ['Arvind Kejriwal', 'Manish Sisodia'],
-    ['Manmohan Singh', 'P. V. Narasimha Rao'],
-  ]},
-  hollywood: { name: 'Hollywood Actors', pairs: [
-    ['Leonardo DiCaprio', 'Brad Pitt'],
-    ['Tom Cruise', 'Tom Hanks'],
-    ['Robert Downey Jr.', 'Chris Evans'],
-    ['Dwayne Johnson', 'Jason Statham'],
-    ['Will Smith', 'Denzel Washington'],
-    ['Scarlett Johansson', 'Jennifer Lawrence'],
-    ['Johnny Depp', 'Christian Bale'],
-    ['Ryan Reynolds', 'Ryan Gosling'],
-    ['Margot Robbie', 'Emma Stone'],
-  ]},
-  influential: { name: 'Influential Figures', pairs: [
-    ['Elon Musk', 'Jeff Bezos'],
-    ['Bill Gates', 'Steve Jobs'],
-    ['Mahatma Gandhi', 'Nelson Mandela'],
-    ['Martin Luther King Jr.', 'Malcolm X'],
-    ['Marie Curie', 'Albert Einstein'],
-    ['Oprah Winfrey', 'Ellen DeGeneres'],
-    ['Barack Obama', 'Bill Clinton'],
-    ['Warren Buffett', 'Charlie Munger'],
-  ]},
-  music: { name: 'Music Icons', pairs: [
-    ['Michael Jackson', 'Prince'],
-    ['Beyoncé', 'Rihanna'],
-    ['Ariana Grande', 'Selena Gomez'],
-    ['Taylor Swift', 'Katy Perry'],
-    ['Drake', 'Kanye West'],
-    ['Ed Sheeran', 'Shawn Mendes'],
-    ['Adele', 'Sam Smith'],
-    ['Freddie Mercury', 'Robert Plant'],
-  ]},
-  heroes: { name: 'Superheroes', pairs: [
-    ['Iron Man', 'Batman'],
-    ['Spider-Man', 'Miles Morales'],
-    ['Superman', 'Captain Marvel'],
-    ['Wolverine', 'Deadpool'],
-    ['Thor', 'Hercules'],
-    ['The Flash', 'Quicksilver'],
-    ['Black Widow', 'Hawkeye'],
-  ]},
-  food: { name: 'World Foods', pairs: [
-    ['Pizza', 'Calzone'],
-    ['Sushi', 'Sashimi'],
-    ['Burger', 'Sandwich'],
-    ['Tacos', 'Burritos'],
-    ['Ramen', 'Udon'],
-    ['Croissant', 'Danish Pastry'],
-    ['Pasta', 'Rice Noodles'],
-    ['Samosa', 'Empanada'],
-  ]},
-  animals: { name: 'Wild Animals', pairs: [
-    ['Lion', 'Tiger'],
-    ['Alligator', 'Crocodile'],
-    ['Dolphin', 'Porpoise'],
-    ['Cheetah', 'Leopard'],
-    ['Frog', 'Toad'],
-    ['Wolf', 'Fox'],
-    ['Butterfly', 'Moth'],
-    ['Camel', 'Llama'],
-  ]},
-  history: { name: 'Historical Figures', pairs: [
-    ['Napoleon Bonaparte', 'Julius Caesar'],
-    ['Cleopatra', 'Nefertiti'],
-    ['Abraham Lincoln', 'George Washington'],
-    ['Leonardo da Vinci', 'Michelangelo'],
-    ['Genghis Khan', 'Alexander the Great'],
-    ['Winston Churchill', 'Franklin D. Roosevelt'],
-  ]},
-};
+const CATEGORIES = require('./categories');
+
+/* Game limits */
+const MAX_PLAYERS = 9;
+const MAX_IMPOSTERS = 3;
+/** At least 2 "majority" players must remain, and never more than MAX_IMPOSTERS imposters. */
+function maxImpostersFor(playerCount) {
+  return Math.max(1, Math.min(MAX_IMPOSTERS, playerCount - 2));
+}
 
 /* ============================================================
    In-memory room store
@@ -204,6 +109,9 @@ function removePlayerCompletely(room, playerId) {
     }
   }
   if (room.votes && room.votes[playerId] !== undefined) delete room.votes[playerId];
+  if (room.settings) {
+    room.settings.imposterCount = Math.min(room.settings.imposterCount, maxImpostersFor(room.players.length));
+  }
 }
 
 /** Recompute whether all remaining (connected-or-not, they already voted) players have voted. */
@@ -290,7 +198,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
     if (!room) return ack && ack({ ok: false, error: "No case found with that code." });
     if (!name) return ack && ack({ ok: false, error: 'Enter a name.' });
-    if (room.players.length >= 6) return ack && ack({ ok: false, error: 'This room is full (6/6).' });
+    if (room.players.length >= MAX_PLAYERS) return ack && ack({ ok: false, error: `This room is full (${MAX_PLAYERS}/${MAX_PLAYERS}).` });
     if (room.status !== 'lobby') return ack && ack({ ok: false, error: 'This case is already underway.' });
 
     const playerId = genId();
@@ -367,7 +275,7 @@ io.on('connection', (socket) => {
   socket.on('set-imposter-count', ({ delta }) => {
     const room = requireRoom();
     if (!room || !requireHost(room) || room.status !== 'lobby') return;
-    const maxAllowed = Math.max(1, room.players.length - 2);
+    const maxAllowed = maxImpostersFor(room.players.length);
     room.settings.imposterCount = Math.max(1, Math.min(maxAllowed, room.settings.imposterCount + delta));
     broadcast(joinedCode);
   });
@@ -391,7 +299,7 @@ io.on('connection', (socket) => {
     const flip = Math.random() < 0.5;
     const majorityWord = flip ? pair[0] : pair[1];
     const imposterWord = flip ? pair[1] : pair[0];
-    const impCount = Math.max(1, Math.min(room.players.length - 2, room.settings.imposterCount));
+    const impCount = Math.max(1, Math.min(maxImpostersFor(room.players.length), room.settings.imposterCount));
     const shuffledIds = shuffle(room.players.map(p => p.id));
     const imposterIds = shuffledIds.slice(0, impCount);
     const turnOrder = shuffle(room.players.map(p => p.id));
@@ -433,6 +341,18 @@ io.on('connection', (socket) => {
     const room = requireRoom();
     if (!room || !requireHost(room) || room.status !== 'clue') return;
     room.status = 'voting';
+    broadcast(joinedCode);
+  });
+
+  socket.on('skip-to-next-round', () => {
+    const room = requireRoom();
+    if (!room || !requireHost(room) || room.status !== 'clue' || !room.round) return;
+    const rd = room.round;
+    rd.currentRoundNumber++;
+    rd.currentTurnIndex = 0;
+    if (rd.currentRoundNumber > rd.maxRounds) {
+      room.status = 'voting';
+    }
     broadcast(joinedCode);
   });
 
