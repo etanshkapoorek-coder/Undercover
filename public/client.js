@@ -19,6 +19,9 @@ const CATEGORY_LIST = [
 ];
 const ALL_CAT_KEYS = CATEGORY_LIST.map(c => c[0]);
 
+const MAX_PLAYERS = 9;
+const MAX_IMPOSTERS = 3;
+
 const SESSION_KEY = 'undercover_session';
 function saveSession(data){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(data)); }catch(e){} }
 function loadSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }catch(e){ return null; } }
@@ -147,6 +150,7 @@ function submitHint(){
   setState({ hintDraft: '' });
 }
 function hostSkipToVoting(){ socket.emit('skip-to-voting'); }
+function hostSkipToNextRound(){ socket.emit('skip-to-next-round'); }
 function submitVote(targetId){ socket.emit('submit-vote', { targetId }); }
 function playAgain(){ socket.emit('play-again'); }
 
@@ -219,7 +223,7 @@ function landingScreen(){
       <p><b>3. Everyone gives short clues</b> about their word, in turns, over a couple of rounds.</p>
       <p><b>4. Vote.</b> The group votes on who has the odd word out. Catch the imposter and honest players score; blend in and the imposter scores instead.</p>
     </div>` : ''}
-    <div class="footer-note">Play from separate phones or laptops — this runs on a real-time server, so everyone stays in sync instantly. Up to 6 players per case.</div>
+    <div class="footer-note">Play from separate phones or laptops — this runs on a real-time server, so everyone stays in sync instantly. Up to 9 players per case.</div>
   `;
 }
 
@@ -293,7 +297,7 @@ function lobbyScreen(){
     </label>`;
   }).join('');
 
-  const maxImp = Math.max(1, room.players.length - 2);
+  const maxImp = Math.max(1, Math.min(MAX_IMPOSTERS, room.players.length - 2));
   const canStart = room.players.length >= 3 && room.settings.categories.length > 0;
 
   return `
@@ -303,7 +307,7 @@ function lobbyScreen(){
     </div>
 
     <div class="card">
-      <div class="card-title">Players (${room.players.length}/6)</div>
+      <div class="card-title">Players (${room.players.length}/${MAX_PLAYERS})</div>
       <ul class="player-list">${players}</ul>
       ${room.players.length < 3 ? `<div class="waiting-note">Need at least 3 players to start.</div>` : ''}
     </div>
@@ -388,7 +392,11 @@ function clueScreen(){
     <div class="round-label">Round ${Math.min(rd.currentRoundNumber, rd.maxRounds)} of ${rd.maxRounds} · clues so far</div>
     <div class="card"><ul class="hint-feed">${hintsHtml}</ul></div>
 
-    ${isHost(room) ? `<div class="center" style="margin-top:14px;"><button class="link-btn" data-action="skip-voting">Skip straight to voting</button></div>` : ''}
+    ${isHost(room) ? `
+    <div class="center" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;align-items:center;">
+      <button class="link-btn" data-action="skip-voting">Skip straight to voting</button>
+      ${rd.currentRoundNumber < rd.maxRounds ? `<button class="link-btn" data-action="skip-next-round">Skip to next round</button>` : ''}
+    </div>` : ''}
   `;
 }
 
@@ -479,6 +487,7 @@ function bindEvents(){
         case 'start-game': startGame(); break;
         case 'submit-hint': submitHint(); break;
         case 'skip-voting': hostSkipToVoting(); break;
+        case 'skip-next-round': hostSkipToNextRound(); break;
         case 'play-again': playAgain(); break;
       }
     });
