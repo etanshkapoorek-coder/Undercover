@@ -145,6 +145,39 @@ function computeReveal(room) {
   room.lastResult = { tally, topId, tie, imposterCaught };
 }
 
+/**
+ * Deal a brand-new round: new category/word pair, new imposters, new turn order.
+ * Used by both "Start the Case" (from the lobby) and the host's "Skip to next round"
+ * (mid-game, which abandons the current round without voting or scoring).
+ * Returns an error message string if it can't start, otherwise null.
+ */
+function beginNewRound(room) {
+  if (room.players.length < 3) return 'Need at least 3 players to start.';
+  const catKeys = room.settings.categories.filter(k => CATEGORIES[k]);
+  if (catKeys.length === 0) return 'Pick at least one category.';
+
+  const catId = pick(catKeys);
+  const pair = pick(CATEGORIES[catId].pairs);
+  const flip = Math.random() < 0.5;
+  const majorityWord = flip ? pair[0] : pair[1];
+  const imposterWord = flip ? pair[1] : pair[0];
+  const impCount = Math.max(1, Math.min(maxImpostersFor(room.players.length), room.settings.imposterCount));
+  const imposterIds = shuffle(room.players.map(p => p.id)).slice(0, impCount);
+  const turnOrder = shuffle(room.players.map(p => p.id));
+
+  room.round = {
+    categoryName: CATEGORIES[catId].name,
+    majorityWord, imposterWord, imposterIds,
+    turnOrder, currentTurnIndex: 0, currentRoundNumber: 1,
+    maxRounds: room.settings.maxRounds,
+    hints: [],
+  };
+  room.votes = {};
+  room.lastResult = null;
+  room.status = 'clue';
+  return null;
+}
+
 /* ============================================================
    Periodic cleanup
    ============================================================ */
@@ -290,30 +323,8 @@ io.on('connection', (socket) => {
   socket.on('start-game', () => {
     const room = requireRoom();
     if (!room || !requireHost(room) || room.status !== 'lobby') return;
-    if (room.players.length < 3) return fail('Need at least 3 players to start.');
-    const catKeys = room.settings.categories.filter(k => CATEGORIES[k]);
-    if (catKeys.length === 0) return fail('Pick at least one category.');
-
-    const catId = pick(catKeys);
-    const pair = pick(CATEGORIES[catId].pairs);
-    const flip = Math.random() < 0.5;
-    const majorityWord = flip ? pair[0] : pair[1];
-    const imposterWord = flip ? pair[1] : pair[0];
-    const impCount = Math.max(1, Math.min(maxImpostersFor(room.players.length), room.settings.imposterCount));
-    const shuffledIds = shuffle(room.players.map(p => p.id));
-    const imposterIds = shuffledIds.slice(0, impCount);
-    const turnOrder = shuffle(room.players.map(p => p.id));
-
-    room.round = {
-      categoryName: CATEGORIES[catId].name,
-      majorityWord, imposterWord, imposterIds,
-      turnOrder, currentTurnIndex: 0, currentRoundNumber: 1,
-      maxRounds: room.settings.maxRounds,
-      hints: [],
-    };
-    room.votes = {};
-    room.lastResult = null;
-    room.status = 'clue';
+    const err = beginNewRound(room);
+    if (err) return fail(err);
     broadcast(joinedCode);
   });
 
@@ -344,15 +355,12 @@ io.on('connection', (socket) => {
     broadcast(joinedCode);
   });
 
+  // Host abandons the current round (no voting, no points) and immediately deals a fresh one.
   socket.on('skip-to-next-round', () => {
     const room = requireRoom();
     if (!room || !requireHost(room) || room.status !== 'clue' || !room.round) return;
-    const rd = room.round;
-    rd.currentRoundNumber++;
-    rd.currentTurnIndex = 0;
-    if (rd.currentRoundNumber > rd.maxRounds) {
-      room.status = 'voting';
-    }
+    const err = beginNewRound(room);
+    if (err) return fail(err);
     broadcast(joinedCode);
   });
 
