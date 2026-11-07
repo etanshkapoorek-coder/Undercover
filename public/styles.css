@@ -267,3 +267,27 @@ label.field-label{
 .small-muted{font-size:12px;color:#6a624a;}
 .top-muted{font-size:12px;color:var(--muted);}
 a.plain{color:var(--amber);}
+
+
+/* ---------- game mode selector ---------- */
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media (max-width:480px){.mode-grid{grid-template-columns:1fr;}}
+.mode-option{
+  display:flex;flex-direction:column;gap:5px;
+  border:1.5px solid var(--paper-line);border-radius:2px;
+  padding:13px 14px;cursor:pointer;background:#fbf7ea;user-select:none;
+}
+.mode-option b{font-family:'Special Elite',monospace;font-size:16px;font-weight:400;}
+.mode-option span{font-size:12.5px;color:#5a533f;line-height:1.45;}
+.mode-option.on{border-color:var(--stamp);background:rgba(168,52,42,0.10);}
+
+/* ---------- cold case: imposter card ---------- */
+.classified.imposter{border-color:rgba(168,52,42,0.7);box-shadow:0 0 0 1px rgba(168,52,42,0.25), 0 0 30px rgba(168,52,42,0.12);}
+.classified.imposter .stamp-corner{background:rgba(168,52,42,0.12);}
+.classified .hintline{
+  font-family:'Special Elite', monospace;
+  font-size:22px;line-height:1.35;color:var(--amber);
+  padding:12px 8px;
+}
+.reveal-word-box.wide{max-width:300px;}
+.reveal-word-box .w.hintw{font-size:15px;line-height:1.4;}

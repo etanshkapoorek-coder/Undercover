@@ -142,6 +142,7 @@ function leaveToLanding(){
 function toggleCategoryLive(key){ socket.emit('toggle-category', { category: key }); }
 function setImposterCount(delta){ socket.emit('set-imposter-count', { delta }); }
 function setMaxRounds(delta){ socket.emit('set-max-rounds', { delta }); }
+function setMode(mode){ socket.emit('set-mode', { mode }); }
 function startGame(){ socket.emit('start-game'); }
 function submitHint(){
   const text = state.hintDraft.trim();
@@ -150,7 +151,11 @@ function submitHint(){
   setState({ hintDraft: '' });
 }
 function hostSkipToVoting(){ socket.emit('skip-to-voting'); }
-function hostSkipToNextRound(){ socket.emit('skip-to-next-round'); }
+function hostSkipToNextRound(){
+  if (confirm('Start a brand-new round with new words and new imposters? This round will be dropped with no voting and no points.')) {
+    socket.emit('skip-to-next-round');
+  }
+}
 function submitVote(targetId){ socket.emit('submit-vote', { targetId }); }
 function playAgain(){ socket.emit('play-again'); }
 
@@ -222,6 +227,7 @@ function landingScreen(){
       <p><b>2. One or more players get a decoy instead.</b> It's something closely related to the real word (Messi / Neymar, Lion / Tiger). Nobody is told who has the decoy, so that player genuinely might not know for sure.</p>
       <p><b>3. Everyone gives short clues</b> about their word, in turns, over a couple of rounds.</p>
       <p><b>4. Vote.</b> The group votes on who has the odd word out. Catch the imposter and honest players score; blend in and the imposter scores instead.</p>
+      <p><b>Two modes.</b> That's <b>Classic</b>. In <b>Cold Case</b>, everyone else gets a real name (say, Ronaldinho) while the imposter knows they're the imposter and only gets a vague hint (say, "Brazil") — they have to bluff their way through the clues.</p>
     </div>` : ''}
     <div class="footer-note">Play from separate phones or laptops — this runs on a real-time server, so everyone stays in sync instantly. Up to 9 players per case.</div>
   `;
@@ -297,6 +303,7 @@ function lobbyScreen(){
     </label>`;
   }).join('');
 
+  const mode = room.settings.mode || 'classic';
   const maxImp = Math.max(1, Math.min(MAX_IMPOSTERS, room.players.length - 2));
   const canStart = room.players.length >= 3 && room.settings.categories.length > 0;
 
@@ -310,6 +317,21 @@ function lobbyScreen(){
       <div class="card-title">Players (${room.players.length}/${MAX_PLAYERS})</div>
       <ul class="player-list">${players}</ul>
       ${room.players.length < 3 ? `<div class="waiting-note">Need at least 3 players to start.</div>` : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Game Mode</div>
+      <div class="card-sub">${host ? 'Pick how this game plays out.' : 'Chosen by the host.'}</div>
+      <div class="mode-grid">
+        <div class="mode-option ${mode === 'classic' ? 'on' : ''}" ${host ? 'data-mode="classic"' : ''} style="${host ? '' : 'cursor:default;'}">
+          <b>Classic</b>
+          <span>Imposters get a look-alike word (Messi vs Neymar) and don't know they're the imposter.</span>
+        </div>
+        <div class="mode-option ${mode === 'coldcase' ? 'on' : ''}" ${host ? 'data-mode="coldcase"' : ''} style="${host ? '' : 'cursor:default;'}">
+          <b>Cold Case</b>
+          <span>Everyone else gets a name. Imposters know they're the imposter but only get a vague hint.</span>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -350,16 +372,18 @@ function lobbyScreen(){
 
 function myRoleInfo(room){
   const rd = room.round;
+  const mode = rd.mode || 'classic';
   const amImposter = rd.imposterIds.includes(state.myId);
   const word = amImposter ? rd.imposterWord : rd.majorityWord;
-  return { amImposter, word };
+  const hint = rd.imposterHint;
+  return { mode, amImposter, word, hint };
 }
 
 function clueScreen(){
   const room = state.room;
   if (!room || !room.round) return `<div class="card center">Loading round…</div>`;
   const rd = room.round;
-  const { word } = myRoleInfo(room);
+  const { mode, amImposter, word, hint } = myRoleInfo(room);
   const nameById = Object.fromEntries(room.players.map(p => [p.id, p.name]));
   const curPid = rd.turnOrder[rd.currentTurnIndex];
   const myTurn = curPid === state.myId;
@@ -369,6 +393,23 @@ function clueScreen(){
   `).join('') || `<div class="small-muted">No clues yet — the first one is about to drop.</div>`;
 
   return `
+    ${mode === 'coldcase' && amImposter ? `
+    <div class="classified imposter">
+      <div class="stamp-corner">YOU'RE THE IMPOSTER</div>
+      <div class="role-hint">Your only lead</div>
+      <div class="hintline">${esc(hint)}</div>
+      <div class="category">Category: ${esc(rd.categoryName)} · Cold Case</div>
+      <div class="doubt">You don't know who it is. Use this hint and listen to everyone else's clues, then give a clue that sounds like you know. Don't get caught.</div>
+    </div>
+    ` : mode === 'coldcase' ? `
+    <div class="classified">
+      <div class="stamp-corner">EYES ONLY</div>
+      <div class="role-hint">The name is</div>
+      <div class="word">${esc(word)}</div>
+      <div class="category">Category: ${esc(rd.categoryName)} · Cold Case</div>
+      <div class="doubt">Everyone except the imposter has this name. The imposter only has a vague hint, so give clues that prove you know who it is without making it too easy.</div>
+    </div>
+    ` : `
     <div class="classified">
       <div class="stamp-corner">EYES ONLY</div>
       <div class="role-hint">Your secret word</div>
@@ -376,6 +417,7 @@ function clueScreen(){
       <div class="category">Category: ${esc(rd.categoryName)}</div>
       <div class="doubt">Give a clue about your word without saying it. Somebody nearby may have a word that's close, but not quite the same as yours.</div>
     </div>
+    `}
 
     <div class="turn-banner ${myTurn ? '' : 'wait'}" style="margin-top:18px;">
       ${myTurn ? `<span class="pulse"></span> It's your turn — give a clue` : `Waiting on ${esc(nameById[curPid] || '…')}`}
@@ -395,7 +437,7 @@ function clueScreen(){
     ${isHost(room) ? `
     <div class="center" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;align-items:center;">
       <button class="link-btn" data-action="skip-voting">Skip straight to voting</button>
-      ${rd.currentRoundNumber < rd.maxRounds ? `<button class="link-btn" data-action="skip-next-round">Skip to next round</button>` : ''}
+      <button class="link-btn" data-action="skip-next-round">Skip to next round (new words, no voting)</button>
     </div>` : ''}
   `;
 }
@@ -441,10 +483,15 @@ function revealScreen(){
         <div class="small-muted">The group voted for ${esc(topName)}${res.tie ? ' (tie — no clear majority)' : ''}</div>
         <div class="big">${res.imposterCaught ? 'THE IMPOSTER WAS CAUGHT' : 'THE IMPOSTER GOT AWAY'}</div>
       </div>
+      ${(rd.mode || 'classic') === 'coldcase' ? `
+      <div class="reveal-words">
+        <div class="reveal-word-box"><div class="lbl">The name</div><div class="w">${esc(rd.majorityWord)}</div></div>
+        <div class="reveal-word-box wide"><div class="lbl">Imposter's only hint</div><div class="w hintw">${esc(rd.imposterHint)}</div></div>
+      </div>` : `
       <div class="reveal-words">
         <div class="reveal-word-box"><div class="lbl">Majority word</div><div class="w">${esc(rd.majorityWord)}</div></div>
         <div class="reveal-word-box"><div class="lbl">Imposter word</div><div class="w">${esc(rd.imposterWord)}</div></div>
-      </div>
+      </div>`}
       <div class="imposter-list">Playing the imposter${rd.imposterIds.length > 1 ? 's' : ''}: <b>${esc(imposterNames)}</b></div>
     </div>
 
@@ -508,6 +555,10 @@ function bindEvents(){
       e.preventDefault();
       toggleCategoryLive(el.getAttribute('data-cat-live'));
     });
+  });
+
+  app.querySelectorAll('[data-mode]').forEach(el => {
+    el.addEventListener('click', () => setMode(el.getAttribute('data-mode')));
   });
 
   app.querySelectorAll('[data-vote]').forEach(el => {
