@@ -26,6 +26,12 @@ const PORT = process.env.PORT || 3000;
    Category / word-pair data (lives in categories.js)
    ============================================================ */
 const CATEGORIES = require('./categories');
+const HINTS = require('./hints'); // name + hint per entry, used by Cold Case mode
+
+/* Game modes:
+   classic  - imposters get a closely related decoy word and don't know they're the imposter
+   coldcase - everyone else gets a NAME; imposters know they're imposters and get only a HINT */
+const MODES = ['classic', 'coldcase'];
 
 /* Game limits */
 const MAX_PLAYERS = 9;
@@ -69,7 +75,7 @@ function newRoom(code, hostId, hostName, categories) {
     hostId,
     players: [{ id: hostId, name: hostName, score: 0, connected: true, disconnectAt: null }],
     status: 'lobby', // lobby | clue | voting | reveal
-    settings: { imposterCount: 1, maxRounds: 2, categories: categories && categories.length ? categories : Object.keys(CATEGORIES) },
+    settings: { mode: 'classic', imposterCount: 1, maxRounds: 2, categories: categories && categories.length ? categories : Object.keys(CATEGORIES) },
     round: null,
     votes: {},
     lastResult: null,
@@ -146,32 +152,50 @@ function computeReveal(room) {
 }
 
 /**
- * Deal a brand-new round: new category/word pair, new imposters, new turn order.
+ * Deal a brand-new round: new category/entry, new imposters, new turn order.
  * Used by both "Start the Case" (from the lobby) and the host's "Skip to next round"
  * (mid-game, which abandons the current round without voting or scoring).
  * Returns an error message string if it can't start, otherwise null.
  */
 function beginNewRound(room) {
   if (room.players.length < 3) return 'Need at least 3 players to start.';
-  const catKeys = room.settings.categories.filter(k => CATEGORIES[k]);
+  const mode = MODES.includes(room.settings.mode) ? room.settings.mode : 'classic';
+  let catKeys = room.settings.categories.filter(k => CATEGORIES[k]);
   if (catKeys.length === 0) return 'Pick at least one category.';
+  if (mode === 'coldcase') {
+    catKeys = catKeys.filter(k => HINTS[k] && HINTS[k].length > 0);
+    if (catKeys.length === 0) return 'None of the selected categories have Cold Case clues yet.';
+  }
 
   const catId = pick(catKeys);
-  const pair = pick(CATEGORIES[catId].pairs);
-  const flip = Math.random() < 0.5;
-  const majorityWord = flip ? pair[0] : pair[1];
-  const imposterWord = flip ? pair[1] : pair[0];
   const impCount = Math.max(1, Math.min(maxImpostersFor(room.players.length), room.settings.imposterCount));
   const imposterIds = shuffle(room.players.map(p => p.id)).slice(0, impCount);
   const turnOrder = shuffle(room.players.map(p => p.id));
 
-  room.round = {
+  const round = {
+    mode,
     categoryName: CATEGORIES[catId].name,
-    majorityWord, imposterWord, imposterIds,
+    majorityWord: null, imposterWord: null, imposterHint: null,
+    imposterIds,
     turnOrder, currentTurnIndex: 0, currentRoundNumber: 1,
     maxRounds: room.settings.maxRounds,
     hints: [],
   };
+
+  if (mode === 'coldcase') {
+    // Everyone but the imposters gets the name; imposters only get a vague hint.
+    const entry = pick(HINTS[catId]);
+    round.majorityWord = entry.name;
+    round.imposterHint = entry.hint;
+  } else {
+    // Classic: imposters get a closely related decoy word and aren't told.
+    const pair = pick(CATEGORIES[catId].pairs);
+    const flip = Math.random() < 0.5;
+    round.majorityWord = flip ? pair[0] : pair[1];
+    round.imposterWord = flip ? pair[1] : pair[0];
+  }
+
+  room.round = round;
   room.votes = {};
   room.lastResult = null;
   room.status = 'clue';
@@ -294,6 +318,14 @@ io.on('connection', (socket) => {
   function requireHost(room) {
     return room && room.hostId === myPlayerId;
   }
+
+  socket.on('set-mode', ({ mode }) => {
+    const room = requireRoom();
+    if (!room || !requireHost(room) || room.status !== 'lobby') return;
+    if (!MODES.includes(mode)) return;
+    room.settings.mode = mode;
+    broadcast(joinedCode);
+  });
 
   socket.on('toggle-category', ({ category }) => {
     const room = requireRoom();
